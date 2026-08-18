@@ -1,5 +1,4 @@
 name: GKI Kernel Build
-
 on:
   workflow_dispatch:
     inputs:
@@ -43,7 +42,7 @@ jobs:
           DEVICE=duchamp
           KERNEL_ROOT=$KERNEL_ROOT
           ANYKERNEL3=$GITHUB_WORKSPACE/AnyKernel3
-          KSUN_PATCHES=$GITHUB_WORKSPACE/kernel_patches
+          WILD_PATCHES=$GITHUB_WORKSPACE/kernel_patches
           DROIDSPACES=$GITHUB_WORKSPACE/droidspaces
           EOF
 
@@ -68,6 +67,10 @@ jobs:
           ANYKERNEL3_BRANCH="master"
           git clone https://github.com/handingslider/AnyKernel3 -b "$ANYKERNEL3_BRANCH"
           rm -rf AnyKernel3/.git
+
+      - name: Clone Wild Patches
+        run: |
+          git clone --depth=1 https://github.com/WildKernels/kernel_patches.git "$WILD_PATCHES"
 
       - name: Initialize and Sync Kernel Source
         working-directory: ${{ env.KERNEL_ROOT }}
@@ -105,7 +108,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: buildinfo-${{ matrix.variant }}
-          path: buildinfo/${{ matrix.variant }}.txt
+          path: buildinfo-${{ matrix.variant }}.txt
 
       - name: Add Root
         working-directory: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
@@ -181,13 +184,17 @@ jobs:
             CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
             CONFIG_KSU_SUSFS_SUS_MAP=y
 
-      - name: Apply Patches
+      - name: Add backported BBRv3
         working-directory: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
         run: |
-          for patch in "$GITHUB_WORKSPACE"/kernel-patches/common/*.patch; do
-            patch -p1 < "$patch" || true
-          done
-          patch -p1 < "$GITHUB_WORKSPACE"/kernel-patches/bbrv3/bbrv3.patch || true
+          patch -p1 < "$GITHUB_WORKSPACE"/kernel-patches/bbrv3/0001-net-tcp-backport-BBRv3-to-android14-6.1.patch || true
+
+      - name: Enable BBRv3 config
+        uses: ./.github/actions/set-kernel-config
+        with:
+          kernel_dir: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
+          config_list: |
+            CONFIG_TCP_CONG_BBR3=y
 
       - name: Add DroidSpaces
         working-directory: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
@@ -245,10 +252,10 @@ jobs:
       - name: Package AnyKernel3
         run: |
           cd AnyKernel3
-          zip -r9 "../PigguVerse-${{ matrix.root }}-${{ matrix.variant }}-${{ env.DATE }}.zip" *
+          zip -r9 "../PigguVerse-${{ matrix.variant }}-${{ env.DATE }}.zip" *
 
       - name: Upload AnyKernel3
         uses: actions/upload-artifact@v4
         with:
-          name: PigguVerse-${{ matrix.root }}-${{ matrix.variant }}-${{ env.DATE }}
-          path: ./PigguVerse-${{ matrix.root }}-${{ matrix.variant }}-${{ env.DATE }}.zip
+          name: PigguVerse-${{ matrix.variant }}-${{ env.DATE }}
+          path: ./PigguVerse-${{ matrix.variant }}-${{ env.DATE }}.zip
