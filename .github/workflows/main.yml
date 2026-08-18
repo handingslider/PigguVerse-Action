@@ -28,7 +28,7 @@ jobs:
       fail-fast: false
       matrix:
         root: [SukiSU]
-        variant: [upstream-gki-no-lto, mt6897-devs-no-lto]
+        variant: [GKI, AOSP]
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -73,14 +73,14 @@ jobs:
         working-directory: ${{ env.KERNEL_ROOT }}
         run: |
           repo init -u https://android.googlesource.com/kernel/manifest -b common-android14-6.1-lts --repo-rev=v2.16 --depth=1
-          if [[ "${{ matrix.variant }}" == "mt6897-devs-no-lto" ]]; then
+          if [[ "${{ matrix.variant }}" == "AOSP" ]]; then
             git clone https://github.com/mt6897-devs/kernel_manifest .repo/local_manifests
           fi
           repo --trace sync -c -j$(nproc --all) --fail-fast --no-tags --force-sync --no-clone-bundle
 
       - name: Set Kernel Source Directory
         run: |
-          if [[ "${{ matrix.variant }}" == "mt6897-devs-no-lto" ]]; then
+          if [[ "${{ matrix.variant }}" == "AOSP" ]]; then
             echo "KERNEL_SOURCE=kernel-6.1" >> "$GITHUB_ENV"
           else
             echo "KERNEL_SOURCE=common" >> "$GITHUB_ENV"

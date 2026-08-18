@@ -60,11 +60,11 @@ jobs:
               variant=$(cut -d'|' -f1 "$f")
               version=$(cut -d'|' -f2 "$f")
               case "$variant" in
-                upstream-gki-no-lto)
+                GKI)
                   label='Upstream GKI'
                   repo='[android.googlesource.com](https://android.googlesource.com/kernel/manifest) (`common-android14-6.1-lts`)'
                   ;;
-                mt6897-devs-no-lto)
+                AOSP)
                   label='MediaTek mt6897'
                   repo='[mt6897-devs/kernel_manifest](https://github.com/mt6897-devs/kernel_manifest)'
                   ;;

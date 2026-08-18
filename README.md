@@ -39,9 +39,9 @@ PigguVerse-<root>-<flavor>-<date>.zip
 | Field | Values |
 |-------|--------|
 | `root` | `SukiSU` |
-| `flavor` | `upstream-gki-no-lto`, `mt6897-devs-no-lto` |
+| `flavor` | `GKI`, `AOSP` |
 
-Example: `PigguVerse-SukiSU-mt6897-devs-no-lto-20260629_1200.zip`
+Example: `PigguVerse-SukiSU-AOSP-20260629_1200.zip`
 
 ---
 
