@@ -1,0 +1,125 @@
+name: Release Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      susfs:
+        description: "Include SUSFS?"
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    uses: ./.github/workflows/main.yml
+    with:
+      susfs: ${{ inputs.susfs }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 20
+
+      - name: Generate Changelog
+        run: |
+          {
+            echo 'CHANGELOG<<CHANGELOG_EOF'
+            git log -10 --no-merges --pretty=format:'- %s (%h)'
+            echo ''
+            echo 'CHANGELOG_EOF'
+          } >> "$GITHUB_ENV"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare Files for Release
+        run: |
+          mkdir -p release_files
+          find artifacts -type f -name '*.zip' -exec cp {} release_files/ \;
+
+      - name: Set Release Information
+        run: |
+          echo "RELEASE_DATE=$(date +'%Y.%m.%d')" >> $GITHUB_ENV
+          echo "KERNEL_BRANCH=android14-6.1-lts" >> $GITHUB_ENV
+
+      - name: Build Kernel Info Table
+        run: |
+          {
+            echo 'KERNEL_TABLE<<KERNEL_TABLE_EOF'
+            echo '| Build | Kernel Version | Source |'
+            echo '| --- | --- | --- |'
+            for f in artifacts/buildinfo-*/*.txt; do
+              [ -e "$f" ] || continue
+              variant=$(cut -d'|' -f1 "$f")
+              version=$(cut -d'|' -f2 "$f")
+              case "$variant" in
+                upstream-gki-no-lto)
+                  label='Upstream GKI'
+                  repo='[android.googlesource.com](https://android.googlesource.com/kernel/manifest) (`common-android14-6.1-lts`)'
+                  ;;
+                mt6897-devs-no-lto)
+                  label='MediaTek mt6897'
+                  repo='[mt6897-devs/kernel_manifest](https://github.com/mt6897-devs/kernel_manifest)'
+                  ;;
+                *)
+                  label="$variant"
+                  repo='-'
+                  ;;
+              esac
+              echo "| $label | Linux $version | $repo |"
+            done
+            echo 'KERNEL_TABLE_EOF'
+          } >> "$GITHUB_ENV"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release_files/*
+          tag_name: build-${{ github.run_id }}
+          name: PigguVerse ${{ env.RELEASE_DATE }}
+          body: |
+            ## 🐷 PigguVerse — ${{ env.RELEASE_DATE }}
+
+            > **Hyper kernel** for **HyperOS**. Built with Bazel, so it **will not boot on AOSP-based ROMs.**
+
+            ---
+
+            ### 📦 Build Information
+            | Item | Value |
+            | --- | --- |
+            | **Kernel Branch** | `${{ env.KERNEL_BRANCH }}` |
+            | **Root Manager** | SukiSU Ultra |
+            | **SUSFS** | Included |
+
+            ### 🧬 Kernels in this Release
+            ${{ env.KERNEL_TABLE }}
+
+            ---
+
+            ### 📝 Recent Changes
+            ${{ env.CHANGELOG }}
+
+            ---
+
+            ### 🔑 Root Managers
+            - [SukiSU Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra/releases/latest)
+
+            ### 🛡️ SUSFS Module
+            - [susfs4ksu module](https://github.com/rrr333nnn333/BRENE/releases/latest)
+
+            ---
+
+            ### 🙏 Credits
+            - **[Claude (Anthropic)](https://claude.ai/)** — for development & scripting help
+            - **[ChatGPT (OpenAI)](https://chatgpt.com/)** — for development & scripting help
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

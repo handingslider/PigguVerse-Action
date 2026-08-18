@@ -1,0 +1,254 @@
+name: GKI Kernel Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      susfs:
+        description: "Include SUSFS?"
+        type: boolean
+        default: true
+  workflow_call:
+    inputs:
+      susfs:
+        type: boolean
+        default: true
+    outputs:
+      kernel_version:
+        description: "The kernel version"
+        value: ${{ jobs.build-gki.outputs.kernel_version }}
+
+jobs:
+  build-gki:
+    name: Build GKI (${{ matrix.root }}, ${{ matrix.variant }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    outputs:
+      kernel_version: ${{ steps.get-version.outputs.version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        root: [SukiSU]
+        variant: [upstream-gki-no-lto, mt6897-devs-no-lto]
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Build Environment
+        run: |
+          KERNEL_ROOT="$GITHUB_WORKSPACE/kernel"
+          mkdir -p "$KERNEL_ROOT"
+
+          cat >> "$GITHUB_ENV" << EOF
+          DATE=$(date '+%Y%m%d_%H%M')
+          DEVICE=duchamp
+          KERNEL_ROOT=$KERNEL_ROOT
+          ANYKERNEL3=$GITHUB_WORKSPACE/AnyKernel3
+          KSUN_PATCHES=$GITHUB_WORKSPACE/kernel_patches
+          DROIDSPACES=$GITHUB_WORKSPACE/droidspaces
+          EOF
+
+          mkdir -p "$GITHUB_WORKSPACE/git-repo"
+          curl -L https://storage.googleapis.com/git-repo-downloads/repo -o "$GITHUB_WORKSPACE/git-repo/repo"
+          chmod 0755 "$GITHUB_WORKSPACE/git-repo/repo"
+          echo "$GITHUB_WORKSPACE/git-repo" >> "$GITHUB_PATH"
+
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Clone AnyKernel3
+        run: |
+          ANYKERNEL3_BRANCH="master"
+          git clone https://github.com/handingslider/AnyKernel3 -b "$ANYKERNEL3_BRANCH"
+          rm -rf AnyKernel3/.git
+
+      - name: Initialize and Sync Kernel Source
+        working-directory: ${{ env.KERNEL_ROOT }}
+        run: |
+          repo init -u https://android.googlesource.com/kernel/manifest -b common-android14-6.1-lts --repo-rev=v2.16 --depth=1
+          if [[ "${{ matrix.variant }}" == "mt6897-devs-no-lto" ]]; then
+            git clone https://github.com/mt6897-devs/kernel_manifest .repo/local_manifests
+          fi
+          repo --trace sync -c -j$(nproc --all) --fail-fast --no-tags --force-sync --no-clone-bundle
+
+      - name: Set Kernel Source Directory
+        run: |
+          if [[ "${{ matrix.variant }}" == "mt6897-devs-no-lto" ]]; then
+            echo "KERNEL_SOURCE=kernel-6.1" >> "$GITHUB_ENV"
+          else
+            echo "KERNEL_SOURCE=common" >> "$GITHUB_ENV"
+          fi
+
+      - name: Get Kernel Version
+        id: get-version
+        working-directory: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
+        run: |
+          VERSION=$(grep -E "^VERSION =" Makefile | head -n 1 | awk '{print $3}')
+          PATCHLEVEL=$(grep -E "^PATCHLEVEL =" Makefile | head -n 1 | awk '{print $3}')
+          SUBLEVEL=$(grep -E "^SUBLEVEL =" Makefile | head -n 1 | awk '{print $3}')
+          echo "version=${VERSION}.${PATCHLEVEL}.${SUBLEVEL}" >> "$GITHUB_OUTPUT"
+          echo "SUBLEVEL=${SUBLEVEL}" >> "$GITHUB_ENV"
+
+      - name: Save Build Metadata
+        run: |
+          mkdir -p buildinfo
+          echo "${{ matrix.variant }}|${{ steps.get-version.outputs.version }}" > "buildinfo/${{ matrix.variant }}.txt"
+
+      - name: Upload Build Metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: buildinfo-${{ matrix.variant }}
+          path: buildinfo/${{ matrix.variant }}.txt
+
+      - name: Add Root
+        working-directory: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
+        run: |
+          case "${{ matrix.root }}" in
+            "SukiSU")
+              if [[ "${{ inputs.susfs }}" == "true" ]]; then
+                curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
+              else
+                curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
+              fi
+          esac
+
+      - name: Integrate SUSFS
+        if: inputs.susfs == true
+        working-directory: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
+        run: |
+          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android14-6.1 "$GITHUB_WORKSPACE/susfs"
+          cp "$GITHUB_WORKSPACE/susfs/kernel_patches/fs/"* fs/
+          cp "$GITHUB_WORKSPACE/susfs/kernel_patches/include/linux/"* include/linux/
+          cp "$GITHUB_WORKSPACE/susfs/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch" ./
+
+          if [ "$SUBLEVEL" -le "25" ]; then
+            echo "Fake patch: base.c <=25"
+            sed -i '/^#include <trace\/events\/oom.h>$/a #include <trace/hooks/sched.h>' fs/proc/base.c
+          fi
+          if [ "$SUBLEVEL" -le "141" ]; then
+            echo "Fake patch: base.c <=141"
+            sed -i '/^#include <linux\/cpufreq_times.h>$/a #include <linux/dma-buf.h>' fs/proc/base.c
+          fi
+          if [ "$SUBLEVEL" -ge "157" ]; then
+            echo "Fake patch: namespace.c >=157"
+            sed -i '/^#include <trace\/hooks\/blk.h>$/d' fs/namespace.c
+          fi
+
+          patch -p1 < 50_add_susfs_in_gki-android14-6.1.patch
+
+          if grep -q 'VMA_PAD_START(' fs/proc/task_mmu.c && ! grep -qE '#include <linux/pgsize_migration(_inline)?\.h>|define VMA_PAD_START' fs/proc/task_mmu.c; then
+            sed -i '1a #ifndef VMA_PAD_START\n#define VMA_PAD_START(vma) ((vma)->vm_end)\n#endif' fs/proc/task_mmu.c
+          fi
+          if grep -q '__fold_filemap_fixup_entry' fs/proc/task_mmu.c && ! grep -q '#include <linux/page_size_compat.h>' fs/proc/task_mmu.c; then
+            sed -i '/#include <linux\/pkeys.h>/a #include <linux/page_size_compat.h>' fs/proc/task_mmu.c
+          fi
+
+      - name: Revert SUSFS Fake Patches
+        if: inputs.susfs == true
+        working-directory: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
+        run: |
+          if [ "$SUBLEVEL" -le "25" ]; then
+            sed -i '/^#include <trace\/hooks\/sched.h>$/d' fs/proc/base.c
+          fi
+          if [ "$SUBLEVEL" -le "141" ]; then
+            sed -i '/^#include <linux\/dma-buf.h>$/d' fs/proc/base.c
+          fi
+          if [ "$SUBLEVEL" -ge "157" ]; then
+            sed -i '/^#include "internal.h"$/a #include <trace/hooks/blk.h>' fs/namespace.c
+          fi
+          
+      - name: Enable susfs
+        if: inputs.susfs
+        uses: ./.github/actions/set-kernel-config
+        with:
+          kernel_dir: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
+          config_list: |
+            CONFIG_KSU_SUSFS=y
+            CONFIG_KSU_SUSFS_SUS_PATH=y
+            CONFIG_KSU_SUSFS_SUS_MOUNT=y
+            CONFIG_KSU_SUSFS_SUS_KSTAT=y
+            CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+            CONFIG_KSU_SUSFS_ENABLE_LOG=y
+            CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
+            CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+            CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+            CONFIG_KSU_SUSFS_SUS_MAP=y
+
+      - name: Apply Patches
+        working-directory: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
+        run: |
+          for patch in "$GITHUB_WORKSPACE"/kernel-patches/common/*.patch; do
+            patch -p1 < "$patch" || true
+          done
+          patch -p1 < "$GITHUB_WORKSPACE"/kernel-patches/bbrv3/bbrv3.patch || true
+
+      - name: Add DroidSpaces
+        working-directory: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
+        run: |
+          wget https://raw.githubusercontent.com/ravindu644/Droidspaces-OSS/refs/heads/main/Documentation/resources/kernel-patches/GKI/below-kernel-6.12/001.GKI-below-6.12-fix_sysvipc_kabi_6_7_8.patch
+          patch -p1 < 001.GKI-below-6.12-fix_sysvipc_kabi_6_7_8.patch || true
+
+      - name: Enable DroidSpaces config
+        uses: ./.github/actions/set-kernel-config
+        with:
+          kernel_dir: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
+          config_list: |
+            CONFIG_PID_NS=y
+            CONFIG_SYSVIPC=y
+            CONFIG_POSIX_MQUEUE=y
+            CONFIG_IPC_NS=y
+            CONFIG_DEVTMPFS=y
+            CONFIG_BINFMT_MISC=y
+            CONFIG_BINFMT_SCRIPT=y
+            CONFIG_BINFMT_ELF=y
+
+      - name: Configuration
+        uses: ./.github/actions/set-kernel-config
+        with:
+          kernel_dir: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
+          config_list: |
+            CONFIG_WERROR=n
+
+      - name: Cleanup protected exports
+        working-directory: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
+        run: |
+          echo CONFIG_LOCALVERSION="-PigguVerse" >> arch/arm64/configs/gki_defconfig
+          rm -rf ./android/abi_gki_protected_exports_*
+          perl -pi -e 's/^\s*"protected_exports_list"\s*:\s*"android\/abi_gki_protected_exports_aarch64",\s*$//;' ./BUILD.bazel
+          sed -i 's/check_defconfig//' ./build.config.gki
+
+      - name: Commit Changes
+        working-directory: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Integrate KernelSU" || true
+
+      - name: Build Kernel with Bazel (LTO disabled)
+        working-directory: ${{ env.KERNEL_ROOT }}
+        run: |
+          tools/bazel build --config=fast --config=stamp --lto=none //${{ env.KERNEL_SOURCE }}:kernel_aarch64_dist
+
+      - name: Copy image to AnyKernel3
+        run: |
+          IMAGE_PATH="$KERNEL_ROOT/bazel-out/k8-fastbuild/bin/${KERNEL_SOURCE}/kernel_aarch64/Image"
+          cp "$IMAGE_PATH" "$ANYKERNEL3/Image"
+
+      - name: Package AnyKernel3
+        run: |
+          cd AnyKernel3
+          zip -r9 "../PigguVerse-${{ matrix.root }}-${{ matrix.variant }}-${{ env.DATE }}.zip" *
+
+      - name: Upload AnyKernel3
+        uses: actions/upload-artifact@v4
+        with:
+          name: PigguVerse-${{ matrix.root }}-${{ matrix.variant }}-${{ env.DATE }}
+          path: ./PigguVerse-${{ matrix.root }}-${{ matrix.variant }}-${{ env.DATE }}.zip
