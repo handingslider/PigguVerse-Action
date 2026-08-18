@@ -24,6 +24,7 @@ By flashing this kernel **you** are choosing to modify your device. Do your rese
 - 🔐 **Root solution** — [SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra)
 - 🛡️ **SUSFS** — optional root-hiding patches (Rooted builds only)
 - 📦 **DroidSpaces** — full namespace / container support (PID, IPC, mqueue, binfmt)
+- 🛡️  **BBRv3** — Backported BBRv3 TCP congestion algorithm(Thanks to [Wild-Kernels](https://github.com/WildKernels/kernel_patches) for patches)
 - 🎛️ Two build flavors per variant: **Upstream GKI** (Latest GKI 6.1 kernel possible) and **AOSP** (Kernel used in duchamp AOSP roms)
 
 ---
