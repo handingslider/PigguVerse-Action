@@ -18,7 +18,7 @@ on:
 
 jobs:
   build-gki:
-    name: Build GKI (${{ matrix.root }}, ${{ matrix.variant }})
+    name: Build GKI (${{ matrix.root }}, ${{ matrix.variant }}${{ matrix.perf && '-Perf' || '' }})
     runs-on: ubuntu-latest
     timeout-minutes: 180
     outputs:
@@ -28,6 +28,7 @@ jobs:
       matrix:
         root: [SukiSU]
         variant: [GKI, AOSP]
+        perf: [false, true]
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -216,6 +217,17 @@ jobs:
             CONFIG_BINFMT_SCRIPT=y
             CONFIG_BINFMT_ELF=y
 
+      - name: Add Wild performance patches
+        if: matrix.perf == true
+        working-directory: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
+        run: |
+          for p in disable_cache_hot_buddy mem_opt_prefetch optimise_memcmp \
+             optimized_mem_operations clear_page_16bytes_align \
+             file_struct_8bytes_align reduce_cache_pressure \
+             f2fs_reduce_congestion f2fs_enlarge_min_fsync_blocks reduce_gc_thread_sleep_time; do
+          patch -p1 < "$WILD_PATCHES/common/${p}.patch" || true
+          done
+          
       - name: Configuration
         uses: ./.github/actions/set-kernel-config
         with:
