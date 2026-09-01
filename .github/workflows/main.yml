@@ -188,7 +188,7 @@ jobs:
       - name: Add backported BBRv3
         working-directory: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
         run: |
-          patch -p1 < "$GITHUB_WORKSPACE"/kernel-patches/bbrv3/0001-net-tcp-backport-BBRv3-to-android14-6.1.patch || true
+          patch -p1 < "$WILD_PATCHES/common/bbrv3/0001-net-tcp-backport-BBRv3-to-android14-6.1.patch" || true
 
       - name: Enable BBRv3 config
         uses: ./.github/actions/set-kernel-config
