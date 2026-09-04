@@ -198,6 +198,11 @@ jobs:
             CONFIG_TCP_CONG_ADVANCED=y
             CONFIG_TCP_CONG_BBR3=y
             CONFIG_DEFAULT_BBR3=y
+            CONFIG_TCP_CONG_BIC=y
+            CONFIG_TCP_CONG_WESTWOOD=y
+            CONFIG_TCP_CONG_HTCP=y
+            CONFIG_TCP_CONG_CUBIC=y
+            CONFIG_DEFAULT_TCP_CONG="bbr"
 
       - name: Add DroidSpaces
         working-directory: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
