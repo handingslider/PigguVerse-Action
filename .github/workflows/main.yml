@@ -236,11 +236,11 @@ jobs:
           kernel_dir: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
           config_list: |
             CONFIG_WERROR=n
+            CONFIG_LOCALVERSION="-PigguVerse"
 
       - name: Cleanup protected exports
         working-directory: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
         run: |
-          echo CONFIG_LOCALVERSION="-PigguVerse" >> arch/arm64/configs/gki_defconfig
           rm -rf ./android/abi_gki_protected_exports_*
           perl -pi -e 's/^\s*"protected_exports_list"\s*:\s*"android\/abi_gki_protected_exports_aarch64",\s*$//;' ./BUILD.bazel
           sed -i 's/check_defconfig//' ./build.config.gki
