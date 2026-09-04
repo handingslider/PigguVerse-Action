@@ -195,7 +195,9 @@ jobs:
         with:
           kernel_dir: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
           config_list: |
+            CONFIG_TCP_CONG_ADVANCED=y
             CONFIG_TCP_CONG_BBR3=y
+            CONFIG_DEFAULT_BBR3=y
 
       - name: Add DroidSpaces
         working-directory: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
