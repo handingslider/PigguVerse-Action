@@ -204,6 +204,18 @@ jobs:
             CONFIG_TCP_CONG_CUBIC=y
             CONFIG_DEFAULT_TCP_CONG="bbr"
 
+      - name: Add NTSYNC Patches
+        working-directory: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
+        run: |
+          patch -p1 < "$WILD_PATCHES/common/ntsync/ntsync_compat_android14-6.1.patch" || true
+          patch -p1 < "$WILD_PATCHES/common/ntsync/ntsync_base.patch" || true
+      - name: Enable NTSYNC
+        uses: ./.github/actions/set-kernel-config
+        with:
+          kernel_dir: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
+          config_list: |
+            CONFIG_NTSYNC=y
+
       - name: Add DroidSpaces
         working-directory: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
         run: |
