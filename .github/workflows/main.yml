@@ -241,12 +241,26 @@ jobs:
         working-directory: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
         run: |
           for p in disable_cache_hot_buddy mem_opt_prefetch optimise_memcmp \
-             optimized_mem_operations clear_page_16bytes_align \
-             file_struct_8bytes_align reduce_cache_pressure \
-             f2fs_reduce_congestion f2fs_enlarge_min_fsync_blocks reduce_gc_thread_sleep_time; do
-          patch -p1 < "$WILD_PATCHES/common/${p}.patch" || true
+             optimized_mem_operations file_struct_8bytes_align reduce_cache_pressure \
+             f2fs_reduce_congestion f2fs_enlarge_min_fsync_blocks reduce_gc_thread_sleep_time \
+             minimise_wakeup_time int_sqrt add_timeout_wakelocks_globally reduce_freeze_timeout \
+             increase_ext4_default_commit_age increase_sk_mem_packets reduce_pci_pme_wakeups \
+             silence_irq_cpu_logspam silence_system_logspam; do
+            patch -p1 -F3 < "$WILD_PATCHES/common/${p}.patch" || true
           done
-          
+
+          cat "$WILD_PATCHES/common/clear_page_16bytes_align.patch" | \
+            sed -e 's/SYM_FUNC_START_PI(clear_page)/SYM_FUNC_START_PI(__pi_clear_page)/' | \
+            patch -p1 -F3 || true
+
+          FILE="drivers/base/power/wakeup.c"
+          if grep -q "^void pm_system_wakeup(void)" "$FILE"; then
+            if sed -n '/^void pm_system_wakeup(void)/,/^}/p' "$FILE" | grep -q 'suspend_abort_fs_sync();'; then
+              sed -i '/^void pm_system_wakeup(void)/,/^}/{/suspend_abort_fs_sync();/d}' "$FILE"
+            fi
+          fi
+          patch -p1 -F3 < "$WILD_PATCHES/common/avoid_extra_s2idle_wake_attempts.patch" || true
+
       - name: Configuration
         uses: ./.github/actions/set-kernel-config
         with:
