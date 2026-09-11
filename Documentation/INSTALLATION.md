@@ -71,5 +71,5 @@ After flashing a root variant, install the matching manager app:
 
 | Variant | Manager app |
 |---------|-------------|
-| **SukiSU** | [SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra/releases) |
+| **SukiSU** | [ReSukiSU](https://github.com/ReSukiSU/ReSukiSU/releases/latest) |
 | **SUSFS module** | [BRENE](https://github.com/rrr333nnn333/BRENE/releases/latest) |

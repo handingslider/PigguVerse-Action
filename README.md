@@ -4,7 +4,7 @@
 
 **A custom GKI kernel for `duchamp` (POCO X6 Pro) — Android 14, Linux 6.1 LTS**
 
-[![SukiSU](https://img.shields.io/badge/SukiSU--Ultra-Supported-blue)](https://github.com/SukiSU-Ultra/SukiSU-Ultra)
+[![SukiSU](https://img.shields.io/badge/ReSukiSU--Supported-blue)](https://github.com/ReSukiSU/ReSukiSU)
 [![SUSFS](https://img.shields.io/badge/SUSFS-Integrated-orange)](https://gitlab.com/simonpunk/susfs4ksu)
 
 </div>
@@ -21,7 +21,7 @@ By flashing this kernel **you** are choosing to modify your device. Do your rese
 ## ✨ Features
 
 - 🏗️ **GKI based** — built on the official `android14-6.1-lts` common kernel
-- 🔐 **Root solution** — [SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra)
+- 🔐 **Root solution** — [ReSukiSU](https://github.com/ReSukiSU/ReSukiSU)
 - 🛡️ **SUSFS** — optional root-hiding patches (Rooted builds only)
 - 📦 **DroidSpaces** — full namespace / container support (PID, IPC, mqueue, binfmt)
 - 🛡️  **BBRv3** — Backported BBRv3 TCP congestion algorithm(Thanks to [Wild-Kernels](https://github.com/WildKernels/kernel_patches) for patches)
@@ -40,10 +40,10 @@ PigguVerse-<root>-<flavor>-<date>.zip
 
 | Field | Values |
 |-------|--------|
-| `root` | `SukiSU` |
+| `root` | `ReSukiSU` |
 | `flavor` | `GKI`, `AOSP` |
 
-Example: `PigguVerse-SukiSU-AOSP-20260629_1200.zip`
+Example: `PigguVerse-ReSukiSU-AOSP-20260629_1200.zip`
 
 ---
 
@@ -61,7 +61,7 @@ There are three ways to flash PigguVerse — via a root-enabled kernel flasher, 
 This project stands on the shoulders of the wider GKI / Wild Kernels community. Huge thanks to:
 
 - 🔥 **[Wild Kernels](https://github.com/WildKernels)** — SUSFS fixes
-- 🚀 **[SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra)**
+- 🚀 **[ReSukiSU](https://github.com/ReSukiSU/ReSukiSU)**
 - 🛡️ **[SUSFS](https://gitlab.com/simonpunk/susfs4ksu)**
 - 📦 **[SUSFS Module](https://github.com/rrr333nnn333/BRENE/releases/latest)**
 - 📦 **[DroidSpaces](https://github.com/ravindu644/Droidspaces-OSS)**

@@ -26,7 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        root: [SukiSU]
+        root: [ReSukiSU]
         variant: [GKI, AOSP]
         perf: [false, true]
     steps:
@@ -114,14 +114,7 @@ jobs:
       - name: Add Root
         working-directory: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
         run: |
-          case "${{ matrix.root }}" in
-            "SukiSU")
-              if [[ "${{ inputs.susfs }}" == "true" ]]; then
-                curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
-              else
-                curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
-              fi
-          esac
+          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash
 
       - name: Integrate SUSFS
         if: inputs.susfs == true
