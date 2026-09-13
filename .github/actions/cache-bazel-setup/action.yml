@@ -1,0 +1,13 @@
+name: 'Setup Bazel Cache'
+description: 'Create the Bazel disk-cache directory used by --disk_cache in the build step'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Bazel Cache
+      shell: bash
+      run: |
+        set -euo pipefail
+        export BAZEL_CACHE_DIR="/home/runner/.cache/bazel"
+        mkdir -p "$BAZEL_CACHE_DIR"
+        echo "BAZEL_CACHE_DIR: $BAZEL_CACHE_DIR"

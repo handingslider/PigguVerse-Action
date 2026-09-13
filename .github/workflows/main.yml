@@ -16,6 +16,9 @@ on:
         description: "The kernel version"
         value: ${{ jobs.build-gki.outputs.kernel_version }}
 
+permissions:
+  contents: write
+
 jobs:
   build-gki:
     name: Build GKI (${{ matrix.root }}, ${{ matrix.variant }}${{ matrix.perf && '-Perf' || '' }})
@@ -51,6 +54,9 @@ jobs:
           curl -L https://storage.googleapis.com/git-repo-downloads/repo -o "$GITHUB_WORKSPACE/git-repo/repo"
           chmod 0755 "$GITHUB_WORKSPACE/git-repo/repo"
           echo "$GITHUB_WORKSPACE/git-repo" >> "$GITHUB_PATH"
+
+      - name: Setup Bazel Cache Dir
+        uses: ./.github/actions/cache-bazel-setup
 
       - name: Free Disk Space (Ubuntu)
         uses: jlumbroso/free-disk-space@main
@@ -99,6 +105,17 @@ jobs:
           SUBLEVEL=$(grep -E "^SUBLEVEL =" Makefile | head -n 1 | awk '{print $3}')
           echo "version=${VERSION}.${PATCHLEVEL}.${SUBLEVEL}" >> "$GITHUB_OUTPUT"
           echo "SUBLEVEL=${SUBLEVEL}" >> "$GITHUB_ENV"
+
+      - name: Restore Bazel Cache
+        id: restore-bazel
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        with:
+          cache_path: /home/runner/.cache/bazel
+          cache_key: duchamp-${{ steps.get-version.outputs.version }}
+          cache_bucket: bazel-cache-duchamp-${{ matrix.variant }}${{ matrix.perf && '-perf' || '' }}
+          restore_keys: |
+            duchamp-
 
       - name: Save Build Metadata
         run: |
@@ -280,12 +297,25 @@ jobs:
       - name: Build Kernel with Bazel (LTO disabled)
         working-directory: ${{ env.KERNEL_ROOT }}
         run: |
-          tools/bazel build --config=fast --config=stamp --lto=none //${{ env.KERNEL_SOURCE }}:kernel_aarch64_dist
+          tools/bazel build --config=fast --config=stamp --lto=none \
+            --disk_cache=/home/runner/.cache/bazel \
+            //${{ env.KERNEL_SOURCE }}:kernel_aarch64_dist
 
       - name: Copy image to AnyKernel3
         run: |
           IMAGE_PATH="$KERNEL_ROOT/bazel-out/k8-fastbuild/bin/${KERNEL_SOURCE}/kernel_aarch64/Image"
           cp "$IMAGE_PATH" "$ANYKERNEL3/Image"
+
+      - name: Save Bazel Cache
+        if: always()
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        with:
+          cache_path: /home/runner/.cache/bazel
+          cache_key: duchamp-${{ steps.get-version.outputs.version }}
+          cache_bucket: bazel-cache-duchamp-${{ matrix.variant }}${{ matrix.perf && '-perf' || '' }}
+          compression_level: 9
+          github_token: ${{ github.token }}
 
       - name: Package AnyKernel3
         run: |
