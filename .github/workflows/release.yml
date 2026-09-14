@@ -11,6 +11,8 @@ on:
 jobs:
   build:
     uses: ./.github/workflows/main.yml
+    permissions:
+      contents: write
     with:
       susfs: ${{ inputs.susfs }}
 
@@ -19,6 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -40,42 +43,122 @@ jobs:
           path: artifacts
 
       - name: Prepare Files for Release
+        shell: bash
         run: |
+          set -euo pipefail
+
           mkdir -p release_files
-          find artifacts -type f -name '*.zip' -exec cp {} release_files/ \;
+
+          find artifacts \
+            -type f \
+            -name '*.zip' \
+            -exec cp {} release_files/ \;
+
+          find release_files -maxdepth 1 -type f -printf '%f\n' | sort
 
       - name: Set Release Information
+        shell: bash
         run: |
-          echo "RELEASE_DATE=$(date +'%Y.%m.%d')" >> $GITHUB_ENV
-          echo "KERNEL_BRANCH=android14-6.1-lts" >> $GITHUB_ENV
+          echo "RELEASE_DATE=$(date -u +'%Y.%m.%d')" >> "$GITHUB_ENV"
+          echo "BUILD_DATE=$(date -u +'%Y-%m-%d')" >> "$GITHUB_ENV"
+          echo "BUILD_FINISH_TIME=$(date -u +'%H:%M:%S UTC')" >> "$GITHUB_ENV"
+          echo "KERNEL_BRANCH=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
 
-      - name: Build Kernel Info Table
+          if [ "${{ inputs.susfs }}" = "true" ]; then
+            echo "SUSFS_STATUS=Included" >> "$GITHUB_ENV"
+          else
+            echo "SUSFS_STATUS=Not included" >> "$GITHUB_ENV"
+          fi
+
+      - name: Detect Kernel Versions
+        shell: bash
         run: |
+          set -euo pipefail
+
+          get_kernel_version() {
+            local zip_file="$1"
+            local image_path
+            local version
+
+            image_path="$(
+              unzip -Z1 "$zip_file" |
+              grep -E '(^|/)Image$' |
+              head -n 1
+            )"
+
+            if [ -z "$image_path" ]; then
+              echo "Could not find Image inside $zip_file"
+              exit 1
+            fi
+
+            version="$(
+              unzip -p "$zip_file" "$image_path" |
+              strings |
+              grep -oE 'Linux version [0-9]+\.[0-9]+\.[0-9]+' |
+              head -n 1 |
+              sed 's/Linux version //'
+            )"
+
+            if [ -z "$version" ]; then
+              echo "Could not detect kernel version from $zip_file"
+              exit 1
+            fi
+
+            echo "$version"
+          }
+
+          AOSP_ZIP=""
+          AOSP_PERF_ZIP=""
+          GKI_ZIP=""
+          GKI_PERF_ZIP=""
+
+          for zip in release_files/*.zip; do
+            [ -f "$zip" ] || continue
+
+            filename="$(basename "$zip")"
+
+            case "$filename" in
+              PigguVerse-AOSP-Perf-*.zip)
+                AOSP_PERF_ZIP="$zip"
+                ;;
+              PigguVerse-AOSP-*.zip)
+                AOSP_ZIP="$zip"
+                ;;
+              PigguVerse-GKI-Perf-*.zip)
+                GKI_PERF_ZIP="$zip"
+                ;;
+              PigguVerse-GKI-*.zip)
+                GKI_ZIP="$zip"
+                ;;
+            esac
+          done
+
+          for required in \
+            "$AOSP_ZIP" \
+            "$AOSP_PERF_ZIP" \
+            "$GKI_ZIP" \
+            "$GKI_PERF_ZIP"
+          do
+            if [ ! -f "$required" ]; then
+              echo "Missing expected release ZIP: $required"
+              exit 1
+            fi
+          done
+
+          AOSP_VERSION="$(get_kernel_version "$AOSP_ZIP")"
+          AOSP_PERF_VERSION="$(get_kernel_version "$AOSP_PERF_ZIP")"
+          GKI_VERSION="$(get_kernel_version "$GKI_ZIP")"
+          GKI_PERF_VERSION="$(get_kernel_version "$GKI_PERF_ZIP")"
+
           {
-            echo 'KERNEL_TABLE<<KERNEL_TABLE_EOF'
-            echo '| Build | Kernel Version | Source |'
-            echo '| --- | --- | --- |'
-            for f in artifacts/buildinfo-*/*.txt; do
-              [ -e "$f" ] || continue
-              variant=$(cut -d'|' -f1 "$f")
-              version=$(cut -d'|' -f2 "$f")
-              case "$variant" in
-                GKI)
-                  label='Upstream GKI'
-                  repo='[android.googlesource.com](https://android.googlesource.com/kernel/manifest) (`common-android14-6.1-lts`)'
-                  ;;
-                AOSP)
-                  label='MediaTek mt6897'
-                  repo='[mt6897-devs/kernel_manifest](https://github.com/mt6897-devs/kernel_manifest)'
-                  ;;
-                *)
-                  label="$variant"
-                  repo='-'
-                  ;;
-              esac
-              echo "| $label | Linux $version | $repo |"
-            done
-            echo 'KERNEL_TABLE_EOF'
+            echo "AOSP_VERSION=$AOSP_VERSION"
+            echo "AOSP_PERF_VERSION=$AOSP_PERF_VERSION"
+            echo "GKI_VERSION=$GKI_VERSION"
+            echo "GKI_PERF_VERSION=$GKI_PERF_VERSION"
+            echo "AOSP_FILE=$(basename "$AOSP_ZIP")"
+            echo "AOSP_PERF_FILE=$(basename "$AOSP_PERF_ZIP")"
+            echo "GKI_FILE=$(basename "$GKI_ZIP")"
+            echo "GKI_PERF_FILE=$(basename "$GKI_PERF_ZIP")"
           } >> "$GITHUB_ENV"
 
       - name: Create Release
@@ -87,39 +170,222 @@ jobs:
           body: |
             ## 🐷 PigguVerse — ${{ env.RELEASE_DATE }}
 
-            > **Hyper kernel** for **HyperOS**. Built with Bazel, so it **will not boot on AOSP-based ROMs.**
-
-            ---
+            > **Hyper kernel** for **HyperOS**.
 
             ### 📦 Build Information
+
             | Item | Value |
             | --- | --- |
             | **Kernel Branch** | `${{ env.KERNEL_BRANCH }}` |
-            | **Root Manager** | SukiSU Ultra |
-            | **SUSFS** | Included |
+            | **Root Manager** | ReSukiSU |
+            | **SUSFS** | `${{ env.SUSFS_STATUS }}` |
+            | **Build Date** | `${{ env.BUILD_DATE }}` |
+            | **Finish Time** | `${{ env.BUILD_FINISH_TIME }}` |
 
             ### 🧬 Kernels in this Release
-            ${{ env.KERNEL_TABLE }}
 
-            ---
+            | Build | Kernel Version |
+            | --- | --- |
+            | PigguVerse-AOSP | Linux ${{ env.AOSP_VERSION }} |
+            | PigguVerse-AOSP + PerfPatches | Linux ${{ env.AOSP_PERF_VERSION }} |
+            | PigguVerse-GKI | Linux ${{ env.GKI_VERSION }} |
+            | PigguVerse-GKI + PerfPatches | Linux ${{ env.GKI_PERF_VERSION }} |
 
             ### 📝 Recent Changes
+
             ${{ env.CHANGELOG }}
 
-            ---
+            ### 🔑 Root Manager
 
-            ### 🔑 Root Managers
-            - [SukiSU Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra/releases/latest)
+            - [ReSukiSU](https://github.com/ReSukiSU/ReSukiSU)
 
             ### 🛡️ SUSFS Module
-            - [susfs4ksu module](https://github.com/rrr333nnn333/BRENE/releases/latest)
 
-            ---
+            - [susfs4ksu](https://github.com/rrr333nnn333/BRENE/releases/latest)
 
             ### 🙏 Credits
-            - **[Claude (Anthropic)](https://claude.ai/)** — for development & scripting help
-            - **[ChatGPT (OpenAI)](https://chatgpt.com/)** — for development & scripting help
+
+            - [Claude](https://claude.ai/)
+            - [ChatGPT](https://chatgpt.com/)
           draft: false
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Send Telegram Rich Message
+        shell: bash
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          REPOSITORY: ${{ github.repository }}
+          BRANCH: ${{ env.KERNEL_BRANCH }}
+          RELEASE_TAG: build-${{ github.run_id }}
+          BUILD_DATE: ${{ env.BUILD_DATE }}
+          BUILD_FINISH_TIME: ${{ env.BUILD_FINISH_TIME }}
+          SUSFS_STATUS: ${{ env.SUSFS_STATUS }}
+          AOSP_VERSION: ${{ env.AOSP_VERSION }}
+          AOSP_PERF_VERSION: ${{ env.AOSP_PERF_VERSION }}
+          GKI_VERSION: ${{ env.GKI_VERSION }}
+          GKI_PERF_VERSION: ${{ env.GKI_PERF_VERSION }}
+          AOSP_FILE: ${{ env.AOSP_FILE }}
+          AOSP_PERF_FILE: ${{ env.AOSP_PERF_FILE }}
+          GKI_FILE: ${{ env.GKI_FILE }}
+          GKI_PERF_FILE: ${{ env.GKI_PERF_FILE }}
+        run: |
+          set -euo pipefail
+
+          RELEASE_URL="https://github.com/${REPOSITORY}/releases/tag/${RELEASE_TAG}"
+
+          AOSP_URL="https://github.com/${REPOSITORY}/releases/download/${RELEASE_TAG}/${AOSP_FILE}"
+          AOSP_PERF_URL="https://github.com/${REPOSITORY}/releases/download/${RELEASE_TAG}/${AOSP_PERF_FILE}"
+          GKI_URL="https://github.com/${REPOSITORY}/releases/download/${RELEASE_TAG}/${GKI_FILE}"
+          GKI_PERF_URL="https://github.com/${REPOSITORY}/releases/download/${RELEASE_TAG}/${GKI_PERF_FILE}"
+
+          HTML=$(cat <<EOF
+          <h1>PigguVerse kernel</h1>
+
+          <details>
+            <summary><code>What's inside</code></summary>
+            <table bordered>
+              <tr>
+                <th colspan="2" align="center">Build information</th>
+              </tr>
+              <tr>
+                <td>Branch</td>
+                <td>${BRANCH}</td>
+              </tr>
+              <tr>
+                <td>Build date</td>
+                <td>${BUILD_DATE}</td>
+              </tr>
+              <tr>
+                <td>Build finish time</td>
+                <td>${BUILD_FINISH_TIME}</td>
+              </tr>
+              <tr>
+                <td>SUSFS</td>
+                <td>${SUSFS_STATUS}</td>
+              </tr>
+            </table>
+
+            <details>
+              <summary><b>Features</b></summary>
+              <ol>
+                <li><a href="https://github.com/ReSukiSU/ReSukiSU">ReSukiSU Root</a></li>
+                <li>BBRv3 TCP Congestion algorithm</li>
+                <li>Droidspaces - containers inside of your phone</li>
+                <li><a href="https://github.com/ravindu644/Droidspaces-OSS">NTSYNC</a> - Driver which improves Proton/Wine emulation</li>
+                <li>MultiManager support</li>
+              </ol>
+            </details>
+          </details>
+
+          <details>
+            <summary><code>Useful links</code></summary>
+            <ol>
+              <li><a href="https://github.com/${REPOSITORY}">My repository</a></li>
+              <li><a href="https://t.me/PigguVerseCI">CI Channel</a></li>
+              <li><a href="${RELEASE_URL}">GitHub Release</a></li>
+            </ol>
+          </details>
+
+          <details>
+            <summary><b>📦 Download Kernel Matrix Builds</b></summary>
+
+            <details>
+              <summary><b>PigguVerse-AOSP</b></summary>
+              <table bordered>
+                <tr>
+                  <td>Kernel Version</td>
+                  <td>Linux ${AOSP_VERSION}</td>
+                </tr>
+                <tr>
+                  <td>Target</td>
+                  <td>Android AOSP (Standard)</td>
+                </tr>
+                <tr>
+                  <td>Download</td>
+                  <td><a href="${AOSP_URL}">Get AOSP Build</a></td>
+                </tr>
+              </table>
+            </details>
+
+            <details>
+              <summary><b>PigguVerse-AOSP + PerfPatches</b></summary>
+              <table bordered>
+                <tr>
+                  <td>Kernel Version</td>
+                  <td>Linux ${AOSP_PERF_VERSION}</td>
+                </tr>
+                <tr>
+                  <td>Target</td>
+                  <td>AOSP + Performance Tweaks</td>
+                </tr>
+                <tr>
+                  <td>Download</td>
+                  <td><a href="${AOSP_PERF_URL}">Get AOSP+Perf Build</a></td>
+                </tr>
+              </table>
+            </details>
+
+            <details>
+              <summary><b>PigguVerse-GKI</b></summary>
+              <table bordered>
+                <tr>
+                  <td>Kernel Version</td>
+                  <td>Linux ${GKI_VERSION}</td>
+                </tr>
+                <tr>
+                  <td>Target</td>
+                  <td>Generic Kernel Image (GKI)</td>
+                </tr>
+                <tr>
+                  <td>Download</td>
+                  <td><a href="${GKI_URL}">Get GKI Build</a></td>
+                </tr>
+              </table>
+            </details>
+
+            <details>
+              <summary><b>PigguVerse-GKI + PerfPatches</b></summary>
+              <table bordered>
+                <tr>
+                  <td>Kernel Version</td>
+                  <td>Linux ${GKI_PERF_VERSION}</td>
+                </tr>
+                <tr>
+                  <td>Target</td>
+                  <td>GKI + Performance Tweaks</td>
+                </tr>
+                <tr>
+                  <td>Download</td>
+                  <td><a href="${GKI_PERF_URL}">Get GKI+Perf Build</a></td>
+                </tr>
+              </table>
+            </details>
+          </details>
+
+          <tg-button-row>
+            <tg-button style="primary" type="url" url="https://github.com/${REPOSITORY}/blob/${BRANCH}/Documentation/INSTALLATION.md">How to flash?</tg-button>
+          </tg-button-row>
+          EOF
+          )
+
+          jq -n \
+            --arg chat_id "$TELEGRAM_CHAT_ID" \
+            --arg html "$HTML" \
+            '{
+              chat_id: $chat_id,
+              rich_message: {
+                html: $html
+              }
+            }' > telegram_payload.json
+
+          curl \
+            --fail-with-body \
+            --silent \
+            --show-error \
+            -X POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendRichMessage" \
+            -H "Content-Type: application/json" \
+            --data @telegram_payload.json
