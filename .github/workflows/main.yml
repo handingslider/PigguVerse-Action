@@ -153,6 +153,8 @@ jobs:
           if [ "$SUBLEVEL" -ge "157" ]; then
             echo "Fake patch: namespace.c >=157"
             sed -i '/^#include <trace\/hooks\/blk.h>$/d' fs/namespace.c
+            echo "Applying super.c Android 14 6.1 Fake Patch"
+            sed -i '/^#include <trace\/hooks\/fs.h>$/,+1 d' fs/super.c
           fi
 
           patch -p1 < 50_add_susfs_in_gki-android14-6.1.patch
@@ -176,6 +178,8 @@ jobs:
           fi
           if [ "$SUBLEVEL" -ge "157" ]; then
             sed -i '/^#include "internal.h"$/a #include <trace/hooks/blk.h>' fs/namespace.c
+            echo "Reverting super.c Android 14 6.1 Fake Patch"
+            sed -i '/^#include "internal.h"$/a #include <trace/hooks/fs.h>' fs/super.c
           fi
           
       - name: Enable susfs
