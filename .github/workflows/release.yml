@@ -290,7 +290,7 @@ jobs:
           </details>
 
           <details>
-            <summary><b>📦 Download Kernel Matrix Builds</b></summary>
+            <summary><code>Download kernel</code></summary>
 
             <details>
               <summary><b>PigguVerse-AOSP</b></summary>
