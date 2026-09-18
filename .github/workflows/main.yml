@@ -249,6 +249,7 @@ jobs:
             CONFIG_BINFMT_MISC=y
             CONFIG_BINFMT_SCRIPT=y
             CONFIG_BINFMT_ELF=y
+            CONFIG_USER_NS=y
 
       - name: Add Wild performance patches
         if: matrix.perf == true
