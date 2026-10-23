@@ -157,6 +157,7 @@ jobs:
             sed -i '/^#include <trace\/hooks\/fs.h>$/,+1 d' fs/super.c
           fi
 
+          sed -i '/^ #include <trace\/hooks\/blk\.h>$/d' 50_add_susfs_in_gki-android14-6.1.patch
           patch -p1 < 50_add_susfs_in_gki-android14-6.1.patch
 
           if grep -q 'VMA_PAD_START(' fs/proc/task_mmu.c && ! grep -qE '#include <linux/pgsize_migration(_inline)?\.h>|define VMA_PAD_START' fs/proc/task_mmu.c; then
