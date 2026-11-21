@@ -388,6 +388,26 @@ jobs:
           fi
           patch -p1 -F3 < "$WILD_PATCHES/common/avoid_extra_s2idle_wake_attempts.patch" || true
 
+      - name: Patch OID Registry Generator
+        working-directory: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
+        run: |
+          # 6.1.19x generates lib/oid_registry_data.c with perl. build_OID_registry
+          # only uses Cwd to strip srctree from a comment, and a runner perl whose
+          # Cwd.so comes from another build breaks the whole compile:
+          #   Cwd.c: loadable library and perl binaries are mismatched
+          if [ -f lib/build_OID_registry ]; then
+            sed -i '/^use Cwd/d' lib/build_OID_registry
+            sed -i "s/abs_path([\$]ENV{'srctree'})/\$ENV{'srctree'}/" lib/build_OID_registry
+            if grep -qE 'use Cwd|abs_path\(' lib/build_OID_registry; then
+              echo "::error::lib/build_OID_registry still depends on Cwd"
+              exit 1
+            fi
+            srctree="$PWD" perl lib/build_OID_registry \
+              include/linux/oid_registry.h /tmp/oid_registry_data.c
+            test -s /tmp/oid_registry_data.c
+            head -n 3 /tmp/oid_registry_data.c
+          fi
+
       - name: Configuration
         uses: ./.github/actions/set-kernel-config
         with:
