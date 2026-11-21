@@ -88,6 +88,25 @@ jobs:
           done
           echo "Cross setup: ARCH=arm64 SUBARCH=arm64 LLVM=1 LLVM_IAS=1 (hermetic clang from bazel)"
 
+      - name: Verify Host Perl
+        run: |
+          # kleaf symlinks the host perl into its hermetic toolchain. If the
+          # binary and its XS modules come from different builds, generating
+          # lib/oid_registry_data.c dies with "perl binaries are mismatched".
+          echo "perl binaries: $(which -a perl | tr '\n' ' ')"
+          if perl -MCwd -e 'printf "perl %vd, Cwd %s\n", $^V, $Cwd::VERSION'; then
+            exit 0
+          fi
+          echo "::warning::host perl/Cwd.so mismatch, reinstalling perl packages"
+          dpkg-query -W perl perl-base 2>/dev/null || true
+          sudo apt-get install -y --reinstall --no-install-recommends perl perl-base
+          if ! perl -MCwd -e 'printf "perl %vd, Cwd %s\n", $^V, $Cwd::VERSION'; then
+            echo "::error::host perl is still broken after reinstall"
+            which -a perl
+            perl -V:version -V:useithreads -V:usemultiplicity 2>&1 || true
+            exit 1
+          fi
+
       - name: Clone AnyKernel3
         run: |
           ANYKERNEL3_BRANCH="master"
