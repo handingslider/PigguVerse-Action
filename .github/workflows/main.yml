@@ -29,7 +29,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        root: [ReSukiSU]
+        root: [ReSukiSU, NoRoot]
         variant: [GKI, AOSP]
         perf: [false, true]
     steps:
@@ -68,6 +68,25 @@ jobs:
           large-packages: true
           docker-images: true
           swap-storage: true
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bc bison cpio device-tree-compiler dwarves flex libelf-dev libssl-dev \
+            python3 zstd
+          # Not needed for Image-only GKI builds, but keep them when apt has them
+          sudo apt-get install -y --no-install-recommends mkbootimg avbtool \
+            || echo "mkbootimg/avbtool not available from apt - skipping"
+
+          for tool in pahole dtc mkbootimg avbtool zstd cpio bc bison flex python3; do
+            if command -v "$tool" >/dev/null 2>&1; then
+              echo "OK: $tool -> $(command -v "$tool")"
+            else
+              echo "::warning::$tool not found"
+            fi
+          done
+          echo "Cross setup: ARCH=arm64 SUBARCH=arm64 LLVM=1 LLVM_IAS=1 (hermetic clang from bazel)"
 
       - name: Clone AnyKernel3
         run: |
@@ -113,34 +132,36 @@ jobs:
         with:
           cache_path: /home/runner/.cache/bazel
           cache_key: duchamp-${{ steps.get-version.outputs.version }}
-          cache_bucket: bazel-cache-duchamp-${{ matrix.variant }}${{ matrix.perf && '-perf' || '' }}
+          cache_bucket: bazel-cache-duchamp-${{ matrix.variant }}${{ matrix.perf && '-perf' || '' }}${{ matrix.root == 'NoRoot' && '-noroot' || '' }}
           restore_keys: |
             duchamp-
 
       - name: Save Build Metadata
         run: |
           mkdir -p buildinfo
-          echo "${{ matrix.variant }}|${{ steps.get-version.outputs.version }}" > "buildinfo/${{ matrix.variant }}.txt"
+          echo "${{ matrix.variant }}|${{ matrix.root }}|${{ steps.get-version.outputs.version }}" > "buildinfo/${{ matrix.variant }}-${{ matrix.root }}.txt"
 
       - name: Upload Build Metadata
         uses: actions/upload-artifact@v4
         with:
-          name: buildinfo-${{ matrix.variant }}
-          path: buildinfo-${{ matrix.variant }}.txt
+          name: buildinfo-${{ matrix.variant }}-${{ matrix.root }}
+          path: buildinfo-${{ matrix.variant }}-${{ matrix.root }}.txt
 
       - name: Add Root
+        if: matrix.root != 'NoRoot'
         working-directory: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
         run: |
           curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash
 
       - name: Integrate SUSFS
-        if: inputs.susfs == true
+        if: inputs.susfs && matrix.root != 'NoRoot'
         working-directory: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
         run: |
           git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android14-6.1 "$GITHUB_WORKSPACE/susfs"
           cp "$GITHUB_WORKSPACE/susfs/kernel_patches/fs/"* fs/
           cp "$GITHUB_WORKSPACE/susfs/kernel_patches/include/linux/"* include/linux/
           cp "$GITHUB_WORKSPACE/susfs/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch" ./
+          SUSFS_PATCH=50_add_susfs_in_gki-android14-6.1.patch
 
           if [ "$SUBLEVEL" -le "25" ]; then
             echo "Fake patch: base.c <=25"
@@ -157,8 +178,45 @@ jobs:
             sed -i '/^#include <trace\/hooks\/fs.h>$/,+1 d' fs/super.c
           fi
 
-          sed -i '/^ #include <trace\/hooks\/blk\.h>$/d' 50_add_susfs_in_gki-android14-6.1.patch
-          patch -p1 < 50_add_susfs_in_gki-android14-6.1.patch
+          # AOSP trees lack trace/hooks/blk.h: drop that context line AND fix hunk counts
+          python3 "$GITHUB_WORKSPACE/.github/scripts/fix_susfs_patch.py" "$SUSFS_PATCH"
+
+          set +e
+          patch -p1 --no-backup-if-mismatch < "$SUSFS_PATCH"
+          PATCH_RC=$?
+          set -e
+          echo "susfs patch exit code: $PATCH_RC"
+
+          FIXED=false
+          # android14-6.1 >= 157 shifted the include block: hunk #1 (includes only) rejects
+          if [ -f fs/namespace.c.rej ]; then
+            FIXED=true
+            echo "::group::fs/namespace.c.rej"
+            cat fs/namespace.c.rej
+            echo "::endgroup::"
+            if grep -q 'susfs_def\.h' fs/namespace.c.rej && ! grep -q 'susfs_def\.h' fs/namespace.c; then
+              sed -i '/^#include "internal.h"$/a #include <linux/susfs_def.h>' fs/namespace.c
+            fi
+            if grep -q '<linux/susfs\.h>' fs/namespace.c.rej && ! grep -q '<linux/susfs\.h>' fs/namespace.c; then
+              sed -i '/^#include "internal.h"$/a #include <linux/susfs.h>' fs/namespace.c
+            fi
+            rm -f fs/namespace.c.rej
+          fi
+
+          mapfile -t REJECTS < <(find . -name '*.rej')
+          if [ "${#REJECTS[@]}" -gt 0 ]; then
+            for rej in "${REJECTS[@]}"; do
+              echo "::group::Unresolved reject: $rej"
+              cat "$rej"
+              echo "::endgroup::"
+            done
+            echo "::error::SUSFS patch left ${#REJECTS[@]} unapplied hunk(s)"
+            exit 1
+          fi
+          if [ "$PATCH_RC" -ne 0 ] && [ "$FIXED" != "true" ]; then
+            echo "::error::SUSFS patch failed with exit code $PATCH_RC"
+            exit 1
+          fi
 
           if grep -q 'VMA_PAD_START(' fs/proc/task_mmu.c && ! grep -qE '#include <linux/pgsize_migration(_inline)?\.h>|define VMA_PAD_START' fs/proc/task_mmu.c; then
             sed -i '1a #ifndef VMA_PAD_START\n#define VMA_PAD_START(vma) ((vma)->vm_end)\n#endif' fs/proc/task_mmu.c
@@ -168,7 +226,7 @@ jobs:
           fi
 
       - name: Revert SUSFS Fake Patches
-        if: inputs.susfs == true
+        if: inputs.susfs && matrix.root != 'NoRoot'
         working-directory: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
         run: |
           if [ "$SUBLEVEL" -le "25" ]; then
@@ -184,7 +242,7 @@ jobs:
           fi
           
       - name: Enable susfs
-        if: inputs.susfs
+        if: inputs.susfs && matrix.root != 'NoRoot'
         uses: ./.github/actions/set-kernel-config
         with:
           kernel_dir: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
@@ -199,6 +257,18 @@ jobs:
             CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
             CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
             CONFIG_KSU_SUSFS_SUS_MAP=y
+
+      - name: Disable Root and SUSFS configs
+        if: matrix.root == 'NoRoot'
+        working-directory: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
+        run: |
+          ./scripts/config --file arch/arm64/configs/gki_defconfig \
+            --disable CONFIG_KSU --disable CONFIG_KSU_SUSFS
+          if grep -qE '^CONFIG_KSU(_SUSFS)?=y' arch/arm64/configs/gki_defconfig; then
+            echo "::error::KSU configs are still enabled in a NoRoot build"
+            exit 1
+          fi
+          echo "NoRoot: CONFIG_KSU and CONFIG_KSU_SUSFS disabled"
 
       - name: Add backported BBRv3
         working-directory: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
@@ -283,6 +353,7 @@ jobs:
           kernel_dir: ${{ env.KERNEL_ROOT }}/${{ env.KERNEL_SOURCE }}
           config_list: |
             CONFIG_WERROR=n
+            CONFIG_TRIM_UNUSED_KSYMS=n
             CONFIG_LOCALVERSION="-PigguVerse"
 
       - name: Cleanup protected exports
@@ -303,9 +374,10 @@ jobs:
       - name: Build Kernel with Bazel (LTO disabled)
         working-directory: ${{ env.KERNEL_ROOT }}
         run: |
+          set -o pipefail
           tools/bazel build --config=fast --config=stamp --lto=none \
             --disk_cache=/home/runner/.cache/bazel \
-            //${{ env.KERNEL_SOURCE }}:kernel_aarch64_dist
+            //${{ env.KERNEL_SOURCE }}:kernel_aarch64_dist 2>&1 | tee build.log
 
       - name: Copy image to AnyKernel3
         run: |
@@ -319,17 +391,27 @@ jobs:
         with:
           cache_path: /home/runner/.cache/bazel
           cache_key: duchamp-${{ steps.get-version.outputs.version }}
-          cache_bucket: bazel-cache-duchamp-${{ matrix.variant }}${{ matrix.perf && '-perf' || '' }}
+          cache_bucket: bazel-cache-duchamp-${{ matrix.variant }}${{ matrix.perf && '-perf' || '' }}${{ matrix.root == 'NoRoot' && '-noroot' || '' }}
           compression_level: 9
           github_token: ${{ github.token }}
 
       - name: Package AnyKernel3
         run: |
           cd AnyKernel3
-          zip -r9 "../PigguVerse-${{ matrix.variant }}${{ matrix.perf && '-Perf' || '' }}-${{ env.DATE }}.zip" *
+          zip -r9 "../PigguVerse-${{ matrix.variant }}${{ matrix.perf && '-Perf' || '' }}${{ matrix.root == 'NoRoot' && '-NoRoot' || '' }}-${{ env.DATE }}.zip" *
 
       - name: Upload AnyKernel3
         uses: actions/upload-artifact@v4
         with:
-          name: PigguVerse-${{ matrix.variant }}${{ matrix.perf && '-Perf' || '' }}-${{ env.DATE }}
-          path: ./PigguVerse-${{ matrix.variant }}${{ matrix.perf && '-Perf' || '' }}-${{ env.DATE }}.zip
+          name: PigguVerse-${{ matrix.variant }}${{ matrix.perf && '-Perf' || '' }}${{ matrix.root == 'NoRoot' && '-NoRoot' || '' }}-${{ env.DATE }}
+          path: ./PigguVerse-${{ matrix.variant }}${{ matrix.perf && '-Perf' || '' }}${{ matrix.root == 'NoRoot' && '-NoRoot' || '' }}-${{ env.DATE }}.zip
+
+      - name: Upload Build Logs on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-${{ matrix.variant }}${{ matrix.perf && '-Perf' || '' }}${{ matrix.root == 'NoRoot' && '-NoRoot' || '' }}-${{ env.DATE }}
+          path: |
+            ${{ env.KERNEL_ROOT }}/build.log
+            ${{ env.KERNEL_ROOT }}/**/*.rej
+          if-no-files-found: ignore

@@ -22,6 +22,7 @@ By flashing this kernel **you** are choosing to modify your device. Do your rese
 
 - 🏗️ **GKI based** — built on the official `android14-6.1-lts` common kernel
 - 🔐 **Root solution** — [ReSukiSU](https://github.com/ReSukiSU/ReSukiSU)
+- 🧼 **NoRoot (Vanilla)** — same kernel built without KernelSU/SUSFS (see build naming)
 - 🛡️ **SUSFS** — optional root-hiding patches (Rooted builds only)
 - 📦 **DroidSpaces** — full namespace / container support (PID, IPC, mqueue, binfmt)
 - 🛡️  **BBRv3** — Backported BBRv3 TCP congestion algorithm(Thanks to [Wild-Kernels](https://github.com/WildKernels/kernel_patches) for patches)
@@ -35,15 +36,16 @@ By flashing this kernel **you** are choosing to modify your device. Do your rese
 Release zips are named:
 
 ```
-PigguVerse-<root>-<flavor>-<date>.zip
+PigguVerse-<flavor>[-Perf][-NoRoot]-<date>.zip
 ```
 
 | Field | Values |
 |-------|--------|
-| `root` | `ReSukiSU` |
 | `flavor` | `GKI`, `AOSP` |
+| `-Perf` | optional, Wild performance patches |
+| `-NoRoot` | optional, KernelSU and SUSFS are not built in |
 
-Example: `PigguVerse-ReSukiSU-AOSP-20260629_1200.zip`
+Examples: `PigguVerse-GKI-Perf-20260629_1200.zip`, `PigguVerse-AOSP-NoRoot-20260629_1200.zip`
 
 ---
 

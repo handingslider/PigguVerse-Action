@@ -111,6 +111,10 @@ jobs:
           AOSP_PERF_ZIP=""
           GKI_ZIP=""
           GKI_PERF_ZIP=""
+          AOSP_NOROOT_ZIP=""
+          AOSP_PERF_NOROOT_ZIP=""
+          GKI_NOROOT_ZIP=""
+          GKI_PERF_NOROOT_ZIP=""
 
           for zip in release_files/*.zip; do
             [ -f "$zip" ] || continue
@@ -118,6 +122,18 @@ jobs:
             filename="$(basename "$zip")"
 
             case "$filename" in
+              PigguVerse-AOSP-Perf-NoRoot-*.zip)
+                AOSP_PERF_NOROOT_ZIP="$zip"
+                ;;
+              PigguVerse-AOSP-NoRoot-*.zip)
+                AOSP_NOROOT_ZIP="$zip"
+                ;;
+              PigguVerse-GKI-Perf-NoRoot-*.zip)
+                GKI_PERF_NOROOT_ZIP="$zip"
+                ;;
+              PigguVerse-GKI-NoRoot-*.zip)
+                GKI_NOROOT_ZIP="$zip"
+                ;;
               PigguVerse-AOSP-Perf-*.zip)
                 AOSP_PERF_ZIP="$zip"
                 ;;
@@ -137,7 +153,11 @@ jobs:
             "$AOSP_ZIP" \
             "$AOSP_PERF_ZIP" \
             "$GKI_ZIP" \
-            "$GKI_PERF_ZIP"
+            "$GKI_PERF_ZIP" \
+            "$AOSP_NOROOT_ZIP" \
+            "$AOSP_PERF_NOROOT_ZIP" \
+            "$GKI_NOROOT_ZIP" \
+            "$GKI_PERF_NOROOT_ZIP"
           do
             if [ ! -f "$required" ]; then
               echo "Missing expected release ZIP: $required"
@@ -149,16 +169,28 @@ jobs:
           AOSP_PERF_VERSION="$(get_kernel_version "$AOSP_PERF_ZIP")"
           GKI_VERSION="$(get_kernel_version "$GKI_ZIP")"
           GKI_PERF_VERSION="$(get_kernel_version "$GKI_PERF_ZIP")"
+          AOSP_NOROOT_VERSION="$(get_kernel_version "$AOSP_NOROOT_ZIP")"
+          AOSP_PERF_NOROOT_VERSION="$(get_kernel_version "$AOSP_PERF_NOROOT_ZIP")"
+          GKI_NOROOT_VERSION="$(get_kernel_version "$GKI_NOROOT_ZIP")"
+          GKI_PERF_NOROOT_VERSION="$(get_kernel_version "$GKI_PERF_NOROOT_ZIP")"
 
           {
             echo "AOSP_VERSION=$AOSP_VERSION"
             echo "AOSP_PERF_VERSION=$AOSP_PERF_VERSION"
             echo "GKI_VERSION=$GKI_VERSION"
             echo "GKI_PERF_VERSION=$GKI_PERF_VERSION"
+            echo "AOSP_NOROOT_VERSION=$AOSP_NOROOT_VERSION"
+            echo "AOSP_PERF_NOROOT_VERSION=$AOSP_PERF_NOROOT_VERSION"
+            echo "GKI_NOROOT_VERSION=$GKI_NOROOT_VERSION"
+            echo "GKI_PERF_NOROOT_VERSION=$GKI_PERF_NOROOT_VERSION"
             echo "AOSP_FILE=$(basename "$AOSP_ZIP")"
             echo "AOSP_PERF_FILE=$(basename "$AOSP_PERF_ZIP")"
             echo "GKI_FILE=$(basename "$GKI_ZIP")"
             echo "GKI_PERF_FILE=$(basename "$GKI_PERF_ZIP")"
+            echo "AOSP_NOROOT_FILE=$(basename "$AOSP_NOROOT_ZIP")"
+            echo "AOSP_PERF_NOROOT_FILE=$(basename "$AOSP_PERF_NOROOT_ZIP")"
+            echo "GKI_NOROOT_FILE=$(basename "$GKI_NOROOT_ZIP")"
+            echo "GKI_PERF_NOROOT_FILE=$(basename "$GKI_PERF_NOROOT_ZIP")"
           } >> "$GITHUB_ENV"
 
       - name: Create Release
@@ -177,12 +209,14 @@ jobs:
             | Item | Value |
             | --- | --- |
             | **Kernel Branch** | `${{ env.KERNEL_BRANCH }}` |
-            | **Root Manager** | ReSukiSU |
-            | **SUSFS** | `${{ env.SUSFS_STATUS }}` |
+            | **Root Manager** | ReSukiSU (rooted builds) / none (NoRoot builds) |
+            | **SUSFS** | `${{ env.SUSFS_STATUS }}` (rooted builds only) |
             | **Build Date** | `${{ env.BUILD_DATE }}` |
             | **Finish Time** | `${{ env.BUILD_FINISH_TIME }}` |
 
             ### 🧬 Kernels in this Release
+
+            **NoRoot (Vanilla)** builds ship without KernelSU and SUSFS — pick them if you want a clean kernel that keeps stock `Play Integrity` behaviour.
 
             | Build | Kernel Version |
             | --- | --- |
@@ -190,6 +224,10 @@ jobs:
             | PigguVerse-AOSP + PerfPatches | Linux ${{ env.AOSP_PERF_VERSION }} |
             | PigguVerse-GKI | Linux ${{ env.GKI_VERSION }} |
             | PigguVerse-GKI + PerfPatches | Linux ${{ env.GKI_PERF_VERSION }} |
+            | PigguVerse-AOSP **NoRoot** | Linux ${{ env.AOSP_NOROOT_VERSION }} |
+            | PigguVerse-AOSP + PerfPatches **NoRoot** | Linux ${{ env.AOSP_PERF_NOROOT_VERSION }} |
+            | PigguVerse-GKI **NoRoot** | Linux ${{ env.GKI_NOROOT_VERSION }} |
+            | PigguVerse-GKI + PerfPatches **NoRoot** | Linux ${{ env.GKI_PERF_NOROOT_VERSION }} |
 
             ### 📝 Recent Changes
 
@@ -197,7 +235,8 @@ jobs:
 
             ### 🔑 Root Manager
 
-            - [ReSukiSU](https://github.com/ReSukiSU/ReSukiSU)
+            - [ReSukiSU](https://github.com/ReSukiSU/ReSukiSU) (rooted builds)
+            - No root manager in **NoRoot (Vanilla)** builds
 
             ### 🛡️ SUSFS Module
 
@@ -231,6 +270,14 @@ jobs:
           AOSP_PERF_FILE: ${{ env.AOSP_PERF_FILE }}
           GKI_FILE: ${{ env.GKI_FILE }}
           GKI_PERF_FILE: ${{ env.GKI_PERF_FILE }}
+          AOSP_NOROOT_VERSION: ${{ env.AOSP_NOROOT_VERSION }}
+          AOSP_PERF_NOROOT_VERSION: ${{ env.AOSP_PERF_NOROOT_VERSION }}
+          GKI_NOROOT_VERSION: ${{ env.GKI_NOROOT_VERSION }}
+          GKI_PERF_NOROOT_VERSION: ${{ env.GKI_PERF_NOROOT_VERSION }}
+          AOSP_NOROOT_FILE: ${{ env.AOSP_NOROOT_FILE }}
+          AOSP_PERF_NOROOT_FILE: ${{ env.AOSP_PERF_NOROOT_FILE }}
+          GKI_NOROOT_FILE: ${{ env.GKI_NOROOT_FILE }}
+          GKI_PERF_NOROOT_FILE: ${{ env.GKI_PERF_NOROOT_FILE }}
         run: |
           set -euo pipefail
 
@@ -240,6 +287,10 @@ jobs:
           AOSP_PERF_URL="https://github.com/${REPOSITORY}/releases/download/${RELEASE_TAG}/${AOSP_PERF_FILE}"
           GKI_URL="https://github.com/${REPOSITORY}/releases/download/${RELEASE_TAG}/${GKI_FILE}"
           GKI_PERF_URL="https://github.com/${REPOSITORY}/releases/download/${RELEASE_TAG}/${GKI_PERF_FILE}"
+          AOSP_NOROOT_URL="https://github.com/${REPOSITORY}/releases/download/${RELEASE_TAG}/${AOSP_NOROOT_FILE}"
+          AOSP_PERF_NOROOT_URL="https://github.com/${REPOSITORY}/releases/download/${RELEASE_TAG}/${AOSP_PERF_NOROOT_FILE}"
+          GKI_NOROOT_URL="https://github.com/${REPOSITORY}/releases/download/${RELEASE_TAG}/${GKI_NOROOT_FILE}"
+          GKI_PERF_NOROOT_URL="https://github.com/${REPOSITORY}/releases/download/${RELEASE_TAG}/${GKI_PERF_NOROOT_FILE}"
 
           HTML=$(cat <<EOF
           <h1>PigguVerse kernel</h1>
@@ -360,6 +411,37 @@ jobs:
                 <tr>
                   <td>Download</td>
                   <td><a href="${GKI_PERF_URL}">Get GKI+Perf Build</a></td>
+                </tr>
+              </table>
+            </details>
+
+            <details>
+              <summary><b>PigguVerse NoRoot (Vanilla) - no KernelSU, no SUSFS</b></summary>
+              <table bordered>
+                <tr>
+                  <th>Build</th>
+                  <th>Kernel Version</th>
+                  <th>Download</th>
+                </tr>
+                <tr>
+                  <td>PigguVerse-AOSP-NoRoot</td>
+                  <td>Linux ${AOSP_NOROOT_VERSION}</td>
+                  <td><a href="${AOSP_NOROOT_URL}">Get build</a></td>
+                </tr>
+                <tr>
+                  <td>PigguVerse-AOSP-Perf-NoRoot</td>
+                  <td>Linux ${AOSP_PERF_NOROOT_VERSION}</td>
+                  <td><a href="${AOSP_PERF_NOROOT_URL}">Get build</a></td>
+                </tr>
+                <tr>
+                  <td>PigguVerse-GKI-NoRoot</td>
+                  <td>Linux ${GKI_NOROOT_VERSION}</td>
+                  <td><a href="${GKI_NOROOT_URL}">Get build</a></td>
+                </tr>
+                <tr>
+                  <td>PigguVerse-GKI-Perf-NoRoot</td>
+                  <td>Linux ${GKI_PERF_NOROOT_VERSION}</td>
+                  <td><a href="${GKI_PERF_NOROOT_URL}">Get build</a></td>
                 </tr>
               </table>
             </details>
